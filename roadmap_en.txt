@@ -1,0 +1,181 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║                    AirTOTP — Roadmap                                ║
+║                    Last updated: 2026-07-15                         ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT HAS BEEN DONE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[PHASE 1] Python Application — Raspberry Pi OS Lite Prototype
+─────────────────────────────────────────────────────────────
+  ✓ app/totp.py       — native RFC 6238 (HMAC-SHA1/256/512), no external dependency
+  ✓ app/storage.py    — LUKS management via cryptsetup, RAM DB copy (tmpfs),
+                        multi-pass wipe on shutdown
+  ✓ app/rtc.py        — DS3231 I2C driver (read, write, system clock sync)
+  ✓ app/config.py     — centralised hardware constants (GPIO, SPI, colours…)
+  ✓ app/main.py       — main loop, 5-min inactivity timeout, SIGTERM/SIGINT handling
+
+  UI layer (state machine, ST7789 240×240 via SPI + Pillow):
+  ✓ ui/screen.py      — ST7789 RGB565 driver, backlight control
+  ✓ ui/input.py       — GPIO polling, long SELECT press detection (2 s)
+  ✓ views/unlock.py   — 8-digit PIN entry (UP/DOWN/SELECT)
+  ✓ views/home.py     — scrollable account list
+  ✓ views/code.py     — TOTP code display + 30 s countdown bar
+  ✓ views/add_entry.py — character-by-character entry (label + Base32 secret)
+  ✓ views/add_method.py — choose between manual entry and QR scan
+  ✓ views/qr_scan.py  — import via Pi camera (picamera2 + pyzbar, optional)
+  ✓ views/entry_menu.py — per-entry menu: Back / Delete
+  ✓ views/settings.py — set time, Wipe & Lock, About, Shutdown
+  ✓ views/confirm.py  — generic Yes/No confirmation dialog
+  ✓ views/error.py    — error display with dismissal
+
+  PC-side tools:
+  ✓ tools/provision_data_sd.sh  — initialise SD #2 (LUKS2 + SQLite)
+  ✓ tools/add_totp_entry.py     — add accounts from a Linux PC
+
+[PHASE 2] OS Hardening — Minimal Buildroot Image
+─────────────────────────────────────────────────
+  ✓ buildroot/configs/airtopt_defconfig     — ARM Cortex-A53, BusyBox init,
+                                              Python 3, Pillow, cryptsetup, SQLite
+  ✓ buildroot/board/linux-disable-net.config — removes brcmfmac, cfg80211,
+                                               BT, USB_NET at compile time
+  ✓ buildroot/board/config.txt              — disable-wifi, disable-bt, SPI, I2C,
+                                               gpu_mem=16, kernel=zImage
+  ✓ buildroot/board/cmdline.txt             — rootfs mounted ro, loglevel=3
+  ✓ buildroot/board/post_build.sh           — copies app/, verifies no swap,
+                                               removes residual network files
+  ✓ buildroot/board/genimage.cfg            — flashable SD image (64 MB FAT32 boot
+                                               + 256 MB ext4 rootfs = ~320 MB)
+  ✓ buildroot/board/post_image.sh           — dm-verity + initramfs + genimage
+  ✓ rootfs_overlay/etc/fstab               — rootfs ro, /tmp /run /var as tmpfs
+  ✓ rootfs_overlay/etc/inittab             — BusyBox init, app respawn
+  ✓ rootfs_overlay/etc/init.d/S02tmpfs     — create tmpfs mount directories
+  ✓ rootfs_overlay/etc/init.d/S05rtc       — sync clock from DS3231 at boot
+  ✓ rootfs_overlay/etc/init.d/S99wipe      — wipe /tmp/totp.db at shutdown
+                                              (even after SIGKILL on the app)
+  ✓ buildroot/package/python-rpi-gpio/      — Buildroot recipe for RPi.GPIO
+
+[PHASE 3] Advanced Security
+────────────────────────────
+  ✓ buildroot/board/linux-verity.config     — DM_VERITY=y, BLK_DEV_INITRD=y
+  ✓ buildroot/board/initramfs/init          — init with __ROOT_HASH__ injected
+                                              at build time; refuses to boot if
+                                              the rootfs has been tampered with
+  ✓ buildroot/board/post_image.sh           — veritysetup format → extract root
+                                              hash → inject into initramfs →
+                                              create cpio.gz → call genimage
+  ✓ tools/secure_boot/generate_key.sh      — RSA-2048 key pair generation (offline)
+  ✓ tools/secure_boot/sign_image.sh        — sign kernel + initramfs + firmware
+  ✓ tools/secure_boot/burn_otp.sh          — OTP fuse programming (triple
+                                              confirmation, irreversible)
+
+  Full chain of trust:
+    OTP → start.elf → kernel → initramfs (embedded hash) → verified rootfs
+
+[TESTS] Automated test suite (36 tests, 0 failures)
+────────────────────────────────────────────────────
+  ✓ tests/test_totp.py     — 15 RFC 6238 test vectors (SHA1, SHA256, SHA512)
+  ✓ tests/test_storage.py  — wipe, make_entry, load/add/delete (in-memory SQLite)
+  ✓ tests/test_views.py    — navigation, view transitions, QR parsing
+                              (GPIO/SPI mocked, no hardware required)
+
+[DOCUMENTATION]
+───────────────
+  ✓ docs/hardware.md       — full wiring diagram + BOM (~€51)
+  ✓ docs/build.md          — end-to-end Buildroot guide
+  ✓ docs/threat_model.md   — threat model, attack surfaces, residual risks
+  ✓ docs/secure_boot.md    — OTP secure boot procedure (steps + limitations)
+  ✓ déroulé.txt            — hardware test checklist, step by step (steps 0–5)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT REMAINS TO BE DONE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[REQUIRED — needs physical hardware]
+─────────────────────────────────────
+  ☐ Hardware assembly (wiring per docs/hardware.md)
+  ☐ Phase 1 validation on Pi OS Lite (follow déroulé.txt steps 1–2)
+  ☐ Buildroot build + SD #1 flash (~2–3 h compile time)
+  ☐ Phase 2 validation: boot < 10 s, rootfs ro, no network interfaces
+  ☐ Phase 3 validation: dmsetup status → verified, tampering test
+  ☐ OTP secure boot fuse programming (optional, irreversible — step 5 of déroulé)
+
+[OPTIONAL — future improvements]
+─────────────────────────────────
+  ☐ 3D enclosure — fork the SeedSigner model or design a custom case
+  ☐ OV2640 camera — enable QR code import (picamera2 + pyzbar already coded;
+                     just connect the camera and enable it in the defconfig)
+  ☐ HOTP import — totp.py already contains _hotp(); expose it in the UI
+  ☐ Backup export — encrypt and export totp.db to a second SD card
+  ☐ Third-party security audit — recommended before sensitive production use
+  ☐ Phase 3 dm-verity — validate on hardware that boot is refused when rootfs
+                         is tampered with (test described in déroulé.txt §4.2)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FILE OVERVIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  app/                        Python application (Phase 1)
+  ├── config.py               Hardware constants
+  ├── main.py                 Entry point
+  ├── totp.py                 RFC 6238
+  ├── storage.py              LUKS + SQLite + wipe
+  ├── rtc.py                  DS3231 driver
+  ├── qr.py                   otpauth:// parsing + camera scan
+  └── ui/
+      ├── screen.py           ST7789 driver
+      ├── input.py            GPIO buttons
+      └── views/
+          ├── unlock.py       PIN entry
+          ├── home.py         Account list
+          ├── code.py         TOTP code display
+          ├── add_method.py   Add method choice (manual / QR)
+          ├── add_entry.py    Manual entry
+          ├── qr_scan.py      QR code import
+          ├── entry_menu.py   Back / Delete
+          ├── settings.py     Settings + time + wipe
+          ├── confirm.py      Yes/No dialog
+          └── error.py        Error display
+
+  buildroot/                  Build system (Phase 2 + 3)
+  ├── configs/airtopt_defconfig
+  ├── board/
+  │   ├── config.txt / cmdline.txt
+  │   ├── linux-disable-net.config
+  │   ├── linux-verity.config
+  │   ├── genimage.cfg
+  │   ├── post_build.sh
+  │   ├── post_image.sh
+  │   ├── initramfs/init
+  │   └── rootfs_overlay/etc/
+  │       ├── fstab / inittab
+  │       └── init.d/ S02tmpfs S05rtc S99wipe
+  └── package/python-rpi-gpio/
+
+  tools/
+  ├── provision_data_sd.sh    SD #2 initialisation
+  ├── add_totp_entry.py       Add account (PC-side)
+  └── secure_boot/
+      ├── generate_key.sh
+      ├── sign_image.sh
+      └── burn_otp.sh
+
+  tests/
+  ├── test_totp.py            15 RFC 6238 vectors
+  ├── test_storage.py         11 storage tests
+  └── test_views.py           36 UI + QR tests
+
+  docs/
+  ├── hardware.md             Wiring + BOM
+  ├── build.md                Buildroot guide
+  ├── threat_model.md         Threat model
+  └── secure_boot.md          OTP guide
+
+  déroulé.txt                 Hardware test checklist
+  roadmap.txt                 French version of this file
+  roadmap_en.txt              This file
+  requirements.txt            Python dependencies
